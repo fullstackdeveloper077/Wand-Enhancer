@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using WandEnhancer.Models;
@@ -23,6 +23,8 @@ namespace WandEnhancer.Core
             public string Name { get; set; }
             public bool Applied { get; set; }
             public bool SingleMatch { get; set; } = true;
+            public string[] CandidateFileNames { get; set; }
+            public string[] SearchHints { get; set; }
             public ResolveContext Resolver { get; set; }
         }
 
@@ -36,6 +38,7 @@ namespace WandEnhancer.Core
                     {
                         new PatchEntry
                         {
+                            SearchHints = new[] { "getUserAccount()", "/v3/account" },
                             Resolver = new ResolveContext
                             {
                                 Handler = (targetFunction) =>
@@ -53,6 +56,7 @@ namespace WandEnhancer.Core
                         },
                         new PatchEntry
                         {
+                            SearchHints = new[] { "setAccountWandBrandExperience()", "/v3/account/brand_experience_wand" },
                             Resolver = new ResolveContext
                             {
                                 Handler = (targetFunction) =>
@@ -64,7 +68,7 @@ namespace WandEnhancer.Core
                             },
                             Name = "setAccountWandBrandExperience",
                             Target = new Regex(
-                                @"setAccountWandBrandExperience\(\){.*?return\s+this\.#\w+\.post\(""/v3/account/brand_experience_wand""\)}",
+                                @"setAccountWandBrandExperience\(\)\{.*?return\s+this\.#\w+\.post\(""/v3/account/brand_experience_wand""\)\}",
                                 RegexOptions.Singleline),
                             Patch =
                                 "setAccountWandBrandExperience(){return this.#<service_name>.post(\"/v3/account/brand_experience_wand\").then(response=>{response.subscription={period:\"yearly\",state:\"active\"};return response;})}"
@@ -77,6 +81,8 @@ namespace WandEnhancer.Core
                     {
                         new PatchEntry
                         {
+                            CandidateFileNames = new[] { "index.js" },
+                            SearchHints = new[] { "ACTION_CHECK_FOR_UPDATE" },
                             Target = new Regex(@"registerHandler\(""ACTION_CHECK_FOR_UPDATE"".*?\)\)\)\)",
                                 RegexOptions.Singleline),
                             Patch = "registerHandler(\"ACTION_CHECK_FOR_UPDATE\",(e=>expectUpdateFeedUrl(e,(e=>null)))"
@@ -90,6 +96,8 @@ namespace WandEnhancer.Core
                         new PatchEntry
                         {
                             Name = "devToolsBeforeInputEvent",
+                            CandidateFileNames = new[] { "index.js" },
+                            SearchHints = new[] { "whenReady().then(" },
                             // Anchor on the Electron main-process `<app>.whenReady().then(`
                             // call. This site is far more stable than the minified renderer
                             // keydown listener that previously held the F12 -> ACTION_OPEN_DEV_TOOLS
@@ -109,42 +117,50 @@ namespace WandEnhancer.Core
                         new PatchEntry
                         {
                             Name = "remoteBridgeMainBoot",
+                            CandidateFileNames = new[] { "index.js" },
+                            SearchHints = new[] { "whenReady().then(run)" },
                             Target = new Regex(@"(?<app>\w+)\.whenReady\(\)\.then\(run\)"),
                             Patch = "${app}.whenReady().then(()=>{try{const p=require(\"node:path\");require(p.join(__dirname,\"remote-panel\",\"bridge.cjs\")).installWandRuntime(require(\"electron\"));}catch(e){try{const fs=require(\"node:fs\"),os=require(\"node:os\"),p=require(\"node:path\");fs.appendFileSync(p.join(os.tmpdir(),\"wand-remote-bridge.log\"),\"[\"+new Date().toISOString()+\"] [boot-error] \"+(e&&e.stack||e)+\"\\n\");}catch(_){}}return run()})"
                         },
                         new PatchEntry
                         {
                             Name = "remoteBridgeReset",
+                            SearchHints = new[] { "client-state" },
                             Target = new Regex(@"#Je\(\)\{this\.#Oe&&\(this\.#Oe\.dispose\(\),this\.#Oe=null\),this\.#Pe=Date\.now\(\)\.toString\(\),this\.#ke=null,this\.#_e=\[],this\.#Ee=null\}"),
                             Patch = "#Je(){this.#Oe&&(this.#Oe.dispose(),this.#Oe=null),this.#Pe=Date.now().toString(),this.#ke=null,this.#_e=[],this.#Ee=null,this.__wandRemoteTrainerInfo=null,this.__wandRemoteBridge?.sync(null)}"
                         },
                         new PatchEntry
                         {
                             Name = "remoteBridgeSyncSnapshot",
+                            SearchHints = new[] { "client-state" },
                             Target = new Regex(@"#Be\(\)\{if\(this\.status===i\.Connected\)\{let e,t=!1,s=this\.#Ee\?\.getMetadata\(h\.vO\)\?\.gameVersion\?\?null,i=!1;const n=this\.#Ve\[this\.#ke\?\?""""\]\|\|null;this\.#Re&&\(e=this\.#Ae\.getPreferredInstallationInfo\(this\.#Re\),e\.app&&\(t=!0,s\?\?=e\.version\?\?null,i=""number""==typeof e\.version&&!this\.#_e\.includes\(e\.version\)\)\),this\.#Me\?\.send\(""client-state"",\{instanceId:this\.#Pe,trainerId:this\.#ke,trainerLoading:this\.#Ee\?\.isLoading\(\),gameInstalled:t,gameVersion:s,needsCompatibilityWarning:i,values:this\.#Ke\(\),themeId:this\.#We,settings:R\(this\.settings\),language:this\.#Ne,accountUuid:this\.account\.uuid,notesReadHash:n,isTimeLimitExpired:""expired""===this\.#Fe\.timerState\}\)\}\}"),
                             Patch = "#Be(){let e,t=!1,s=this.#Ee?.getMetadata(h.vO)?.gameVersion??null,o=!1;const n=this.#Ve[this.#ke??\"\"]||null;this.#Re&&(e=this.#Ae.getPreferredInstallationInfo(this.#Re),e.app&&(t=!0,s??=e.version??null,o=\"number\"==typeof e.version&&!this.#_e.includes(e.version)));this.status===i.Connected&&this.#Me?.send(\"client-state\",{instanceId:this.#Pe,trainerId:this.#ke,trainerLoading:this.#Ee?.isLoading(),gameInstalled:t,gameVersion:s,needsCompatibilityWarning:o,values:this.#Ke(),themeId:this.#We,settings:R(this.settings),language:this.#Ne,accountUuid:this.account.uuid,notesReadHash:n,isTimeLimitExpired:\"expired\"===this.#Fe.timerState});this.__wandRemoteBridge?.sync({instanceId:this.#Pe,trainerId:this.#ke,trainerInfo:this.__wandRemoteTrainerInfo??null,metadata:this.#Ee?.getMetadata(h.vO)??null,trainerLoading:this.#Ee?.isLoading()??false,gameInstalled:t,gameVersion:s,needsCompatibilityWarning:o,language:this.#Ne,themeId:this.#We,notesReadHash:n,isTimeLimitExpired:\"expired\"===this.#Fe.timerState,values:this.#Ke()})}"
                         },
                         new PatchEntry
                         {
                             Name = "remoteBridgeBindHandler",
+                            SearchHints = new[] { "client-state" },
                             Target = new Regex(@"setCurrentTrainer\(e,t=null\)\{const s=e\?\.trainerId\|\|null,i=\(s\?e\?\.gameId:null\)\|\|null,n=\(s\?e\?\.supportedVersions:null\)\|\|\[];if\(s===this\.#ke&&t===this\.#Ee\)return;"),
                             Patch = "setCurrentTrainer(e,t=null){this.__wandRemoteBridge||(this.__wandRemoteBridge=(()=>{try{const r=globalThis.require||require;const{ipcRenderer:c}=r(\"electron\");try{c.invoke(\"wand-remote-url\").then((u=>{u&&(globalThis.__wandRemoteBridgeUrl=u)}))}catch(e){}const send=(ch,p)=>{try{return c.invoke(ch,p&&JSON.parse(JSON.stringify(p)))}catch(e){}};return{sync:(s)=>send(\"wand-remote-sync\",s),valueChanged:(s)=>send(\"wand-remote-value-changed\",s),setHandler:(h)=>{if(this.__wandRemoteBridgeBound)return;this.__wandRemoteBridgeBound=true;try{c.invoke(\"wand-remote-set-handler-bind\")}catch(e){}c.on(\"wand-remote-set-value\",(_e,req)=>{try{h(req)}catch(e){}})}}}catch(e){try{const r=globalThis.require||require,fs=r(\"node:fs\"),os=r(\"node:os\"),p=r(\"node:path\");fs.appendFileSync(p.join(os.tmpdir(),\"wand-remote-bridge.log\"),\"[\"+new Date().toISOString()+\"] [renderer-bind-error] \"+(e&&e.stack||e)+\"\\n\");}catch(_){}return null}})());this.__wandRemoteBridge?.setHandler((e=>{if(!this.#Ee||!e?.target)return!1;return this.#Ee.isActive()?this.#Ee.setValue(e.target,e.value,g.kL.Remote,e.cheatId):!1}));this.__wandRemoteTrainerInfo=e??null;const s=e?.trainerId||null,i=(s?e?.gameId:null)||null,n=(s?e?.supportedVersions:null)||[];if(s===this.#ke&&t===this.#Ee)return;"
                         },
                         new PatchEntry
                         {
                             Name = "remoteBridgeValueDelta",
+                            SearchHints = new[] { "client-value-changed" },
                             Target = new Regex(@"#ct\(e,t\)\{t\.push\(e\.onValueSet\(e=>\{this\.status===i\.Connected&&e\.source!==g\.kL\.Remote&&this\.#Me\?\.send\(""client-value-changed"",\{instanceId:this\.#Pe,name:e\.name,value:e\.value,cheatId:e\.cheatId\}\)\}\)\),this\.#Be\(\)\}"),
                             Patch = "#ct(e,t){t.push(e.onValueSet(e=>{this.status===i.Connected&&e.source!==g.kL.Remote&&this.#Me?.send(\"client-value-changed\",{instanceId:this.#Pe,name:e.name,value:e.value,cheatId:e.cheatId}),this.__wandRemoteBridge?.valueChanged({trainerId:this.#ke,target:e.name,value:e.value,oldValue:e.oldValue,source:String(e.source??\"desktop\"),cheatId:e.cheatId})})),this.#Be()}"
                         },
                         new PatchEntry
                         {
                             Name = "remoteTooltipPreviewUrl",
+                            SearchHints = new[] { "remote_tooltip.scan_the_qr_code_or_visit_the_site", "remote_tooltip.connect_to_wand_remote" },
                             Target = new Regex(@"remoteUrl=""wemodwebsite://remote"""),
                             Patch = "remoteUrl=globalThis.__wandRemoteBridgeUrl||\"" + RemoteWebPanelFallbackUrl + "\""
                         },
                         new PatchEntry
                         {
                             Name = "remoteQrPreviewUrl",
+                            SearchHints = new[] { "resources/elements/remote-qr-code" },
                             Resolver = new ResolveContext
                             {
                                 Handler = (matchContent) =>
