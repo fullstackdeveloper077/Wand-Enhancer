@@ -20,12 +20,73 @@ namespace WandEnhancer.Core
         {
             public Regex Target { get; set; }
             public string Patch { get; set; }
+            public Func<Match, string> PatchFactory { get; set; }
             public string Name { get; set; }
             public bool Applied { get; set; }
             public bool SingleMatch { get; set; } = true;
             public string[] CandidateFileNames { get; set; }
             public string[] SearchHints { get; set; }
             public ResolveContext Resolver { get; set; }
+        }
+
+        private static string RequireGroup(Match match, string groupName, string patchName)
+        {
+            var group = match.Groups[groupName];
+            if (!group.Success || string.IsNullOrEmpty(group.Value))
+            {
+                throw new Exception($"{patchName} failed to resolve {groupName}");
+            }
+
+            return group.Value;
+        }
+
+        private static string RequirePattern(string source, string pattern, string groupName, string patchName)
+        {
+            var match = Regex.Match(source, pattern, RegexOptions.Singleline);
+            return RequireGroup(match, groupName, patchName);
+        }
+
+        private static string BuildSetAccountLanguagePatch(Match match)
+        {
+            var parameters = RequireGroup(match, "params", "setAccountLanguage");
+            var expr = RequireGroup(match, "expr", "setAccountLanguage");
+            return $"setAccountLanguage({parameters}){{return ({expr}).then(response=>{{response&&\"object\"==typeof response&&(response.subscription={{period:\"yearly\",state:\"active\"}});return response;}})}}";
+        }
+
+        private static string BuildRemoteBridgeResetPatch(Match match)
+        {
+            var source = match.Value;
+            var method = RequireGroup(match, "method", "remoteBridgeReset");
+            var disposableField = RequirePattern(source, @"this\.(?<disposable>#[\w$]+)\s*&&\s*\(\s*this\.\k<disposable>\.dispose\(\)", "disposable", "remoteBridgeReset");
+            var instanceField = RequirePattern(source, @"this\.(?<instance>#[\w$]+)\s*=\s*Date\.now\(\)\.toString\(\)", "instance", "remoteBridgeReset");
+            var trainerIdField = RequirePattern(source, @"Date\.now\(\)\.toString\(\)\s*\)?\s*,\s*\(?\s*this\.(?<trainerId>#[\w$]+)\s*=\s*null", "trainerId", "remoteBridgeReset");
+            var supportedVersionsField = RequirePattern(source, @"this\.(?<versions>#[\w$]+)\s*=\s*\[\]", "versions", "remoteBridgeReset");
+            var trainerField = RequirePattern(source, @"this\.(?<versions>#[\w$]+)\s*=\s*\[\]\s*\)?\s*,\s*\(?\s*this\.(?<trainer>#[\w$]+)\s*=\s*null", "trainer", "remoteBridgeReset");
+
+            return $"{method}(){{this.{disposableField}&&(this.{disposableField}.dispose(),this.{disposableField}=null),this.{instanceField}=Date.now().toString(),this.{trainerIdField}=null,this.{supportedVersionsField}=[],this.{trainerField}=null,this.__wandRemoteTrainerInfo=null,this.__wandRemoteBridge?.sync(null)}}";
+        }
+
+        private static string BuildRemoteBridgeSyncSnapshotPatch(Match match)
+        {
+            var source = match.Value;
+            var method = RequireGroup(match, "method", "remoteBridgeSyncSnapshot");
+            var statusAlias = RequirePattern(source, @"this\.status\s*===\s*(?<value>[\w$]+)\.Connected", "value", "remoteBridgeSyncSnapshot");
+            var trainerField = RequirePattern(source, @"this\.(?<trainer>#[\w$]+)\?\.\s*getMetadata\s*\(\s*(?<metadata>[\w$]+\.[\w$]+)\s*\)\?\.\s*gameVersion", "trainer", "remoteBridgeSyncSnapshot");
+            var metadataExport = RequirePattern(source, @"this\.(?<trainer>#[\w$]+)\?\.\s*getMetadata\s*\(\s*(?<metadata>[\w$]+\.[\w$]+)\s*\)\?\.\s*gameVersion", "metadata", "remoteBridgeSyncSnapshot");
+            var notesField = RequirePattern(source, @"this\.(?<notes>#[\w$]+)\s*\[\s*this\.(?<trainerId>#[\w$]+)\s*\?\?\s*""""\s*\]", "notes", "remoteBridgeSyncSnapshot");
+            var trainerIdField = RequirePattern(source, @"this\.(?<notes>#[\w$]+)\s*\[\s*this\.(?<trainerId>#[\w$]+)\s*\?\?\s*""""\s*\]", "trainerId", "remoteBridgeSyncSnapshot");
+            var gameField = RequirePattern(source, @"this\.(?<game>#[\w$]+)\s*&&.*?getPreferredInstallationInfo\s*\(\s*this\.\k<game>\s*\)", "game", "remoteBridgeSyncSnapshot");
+            var installationField = RequirePattern(source, @"this\.(?<game>#[\w$]+)\s*&&.*?this\.(?<installation>#[\w$]+)\.getPreferredInstallationInfo\s*\(\s*this\.\k<game>\s*\)", "installation", "remoteBridgeSyncSnapshot");
+            var supportedVersionsField = RequirePattern(source, @"!\s*this\.(?<versions>#[\w$]+)\.includes\s*\(\s*[\w$]+\.version\s*\)", "versions", "remoteBridgeSyncSnapshot");
+            var remoteChannelField = RequirePattern(source, @"this\.(?<remote>#[\w$]+)\?\.\s*send\s*\(\s*""client-state""", "remote", "remoteBridgeSyncSnapshot");
+            var valuesMethod = RequirePattern(source, @"values\s*:\s*this\.(?<values>#[\w$]+)\s*\(\s*\)", "values", "remoteBridgeSyncSnapshot");
+            var instanceField = RequirePattern(source, @"instanceId\s*:\s*this\.(?<instance>#[\w$]+)", "instance", "remoteBridgeSyncSnapshot");
+            var themeField = RequirePattern(source, @"themeId\s*:\s*this\.(?<theme>#[\w$]+)", "theme", "remoteBridgeSyncSnapshot");
+            var settingsHelper = RequirePattern(source, @"settings\s*:\s*(?<settings>[\w$]+)\s*\(\s*this\.settings\s*\)", "settings", "remoteBridgeSyncSnapshot");
+            var languageField = RequirePattern(source, @"language\s*:\s*this\.(?<language>#[\w$]+)", "language", "remoteBridgeSyncSnapshot");
+            var timerField = RequirePattern(source, @"isTimeLimitExpired\s*:\s*""expired""\s*===\s*this\.(?<timer>#[\w$]+)\.timerState", "timer", "remoteBridgeSyncSnapshot");
+
+            return $"{method}(){{let e,t=!1,s=this.{trainerField}?.getMetadata({metadataExport})?.gameVersion??null,o=!1;const n=this.{notesField}[this.{trainerIdField}??\"\"]||null;this.{gameField}&&(e=this.{installationField}.getPreferredInstallationInfo(this.{gameField}),e.app&&(t=!0,s??=e.version??null,o=\"number\"==typeof e.version&&!this.{supportedVersionsField}.includes(e.version)));this.status==={statusAlias}.Connected&&this.{remoteChannelField}?.send(\"client-state\",{{instanceId:this.{instanceField},trainerId:this.{trainerIdField},trainerLoading:this.{trainerField}?.isLoading(),gameInstalled:t,gameVersion:s,needsCompatibilityWarning:o,values:this.{valuesMethod}(),themeId:this.{themeField},settings:{settingsHelper}(this.settings),language:this.{languageField},accountUuid:this.account.uuid,notesReadHash:n,isTimeLimitExpired:\"expired\"===this.{timerField}.timerState}});this.__wandRemoteBridge?.sync({{instanceId:this.{instanceField},trainerId:this.{trainerIdField},trainerInfo:this.__wandRemoteTrainerInfo??null,metadata:this.{trainerField}?.getMetadata({metadataExport})??null,trainerLoading:this.{trainerField}?.isLoading()??false,gameInstalled:t,gameVersion:s,needsCompatibilityWarning:o,language:this.{languageField},themeId:this.{themeField},notesReadHash:n,isTimeLimitExpired:\"expired\"===this.{timerField}.timerState,values:this.{valuesMethod}()}})}}";
         }
 
         public static Dictionary<EPatchType, PatchEntry[]> GetInstance()
@@ -72,6 +133,19 @@ namespace WandEnhancer.Core
                                 RegexOptions.Singleline),
                             Patch =
                                 "setAccountWandBrandExperience(){return this.#<service_name>.post(\"/v3/account/brand_experience_wand\").then(response=>{response.subscription={period:\"yearly\",state:\"active\"};return response;})}"
+                        },
+                        new PatchEntry
+                        {
+                            // Account-returning endpoint the original patches missed: changing
+                            // language dispatches its (non-Pro) response into the store and
+                            // wiped Pro. Wrap the result the same way. Param names are captured
+                            // so the rewritten body keeps the real argument identifiers.
+                            Name = "setAccountLanguage",
+                            SearchHints = new[] { "setAccountLanguage(", "/v3/account/language" },
+                            Target = new Regex(
+                                @"setAccountLanguage\((?<params>[^)]*)\)\{\s*return\s+(?<expr>this\.#\w+\.post\(""/v3/account/language"",\{[^}]*\}\))\s*;?\s*\}",
+                                RegexOptions.Singleline),
+                            PatchFactory = BuildSetAccountLanguagePatch
                         }
                     }
                 },
@@ -128,15 +202,17 @@ namespace WandEnhancer.Core
                         {
                             Name = "remoteBridgeReset",
                             SearchHints = new[] { "client-state" },
-                            Target = new Regex(@"#Je\(\)\{this\.#Oe&&\(this\.#Oe\.dispose\(\),this\.#Oe=null\),this\.#Pe=Date\.now\(\)\.toString\(\),this\.#ke=null,this\.#_e=\[],this\.#Ee=null\}"),
-                            Patch = "#Je(){this.#Oe&&(this.#Oe.dispose(),this.#Oe=null),this.#Pe=Date.now().toString(),this.#ke=null,this.#_e=[],this.#Ee=null,this.__wandRemoteTrainerInfo=null,this.__wandRemoteBridge?.sync(null)}"
+                            Target = new Regex(@"(?<method>#[\w$]+)\(\)\s*\{\s*(?<body>(?:(?!__wandRemoteBridge|}\s*#[\w$]+\(\)).)*?Date\.now\(\)\.toString\(\)(?:(?!__wandRemoteBridge|}\s*#[\w$]+\(\)).)*?\[\](?:(?!__wandRemoteBridge|}\s*#[\w$]+\(\)).)*?)\s*\}\s*(?=#[\w$]+\(\)\s*\{\s*if\s*\(\s*this\.status\s*===\s*[\w$]+\.Connected\s*\).*?""client-state"")",
+                                RegexOptions.Singleline),
+                            PatchFactory = BuildRemoteBridgeResetPatch
                         },
                         new PatchEntry
                         {
                             Name = "remoteBridgeSyncSnapshot",
                             SearchHints = new[] { "client-state" },
-                            Target = new Regex(@"#Be\(\)\{if\(this\.status===i\.Connected\)\{let e,t=!1,s=this\.#Ee\?\.getMetadata\(h\.vO\)\?\.gameVersion\?\?null,i=!1;const n=this\.#Ve\[this\.#ke\?\?""""\]\|\|null;this\.#Re&&\(e=this\.#Ae\.getPreferredInstallationInfo\(this\.#Re\),e\.app&&\(t=!0,s\?\?=e\.version\?\?null,i=""number""==typeof e\.version&&!this\.#_e\.includes\(e\.version\)\)\),this\.#Me\?\.send\(""client-state"",\{instanceId:this\.#Pe,trainerId:this\.#ke,trainerLoading:this\.#Ee\?\.isLoading\(\),gameInstalled:t,gameVersion:s,needsCompatibilityWarning:i,values:this\.#Ke\(\),themeId:this\.#We,settings:R\(this\.settings\),language:this\.#Ne,accountUuid:this\.account\.uuid,notesReadHash:n,isTimeLimitExpired:""expired""===this\.#Fe\.timerState\}\)\}\}"),
-                            Patch = "#Be(){let e,t=!1,s=this.#Ee?.getMetadata(h.vO)?.gameVersion??null,o=!1;const n=this.#Ve[this.#ke??\"\"]||null;this.#Re&&(e=this.#Ae.getPreferredInstallationInfo(this.#Re),e.app&&(t=!0,s??=e.version??null,o=\"number\"==typeof e.version&&!this.#_e.includes(e.version)));this.status===i.Connected&&this.#Me?.send(\"client-state\",{instanceId:this.#Pe,trainerId:this.#ke,trainerLoading:this.#Ee?.isLoading(),gameInstalled:t,gameVersion:s,needsCompatibilityWarning:o,values:this.#Ke(),themeId:this.#We,settings:R(this.settings),language:this.#Ne,accountUuid:this.account.uuid,notesReadHash:n,isTimeLimitExpired:\"expired\"===this.#Fe.timerState});this.__wandRemoteBridge?.sync({instanceId:this.#Pe,trainerId:this.#ke,trainerInfo:this.__wandRemoteTrainerInfo??null,metadata:this.#Ee?.getMetadata(h.vO)??null,trainerLoading:this.#Ee?.isLoading()??false,gameInstalled:t,gameVersion:s,needsCompatibilityWarning:o,language:this.#Ne,themeId:this.#We,notesReadHash:n,isTimeLimitExpired:\"expired\"===this.#Fe.timerState,values:this.#Ke()})}"
+                            Target = new Regex(@"(?<method>#[\w$]+)\(\)\s*\{\s*if\s*\(\s*this\.status\s*===\s*[\w$]+\.Connected\s*\)\s*\{(?<body>.*?""client-state"".*?isTimeLimitExpired\s*:\s*""expired""\s*===\s*this\.\#[\w$]+\.timerState.*?\)\s*;?\s*\)?\s*;?)\s*\}\s*\}(?=\s*#[\w$]+\(\)\s*\{\s*if\s*\(\s*!this\.\#[\w$]+\?\.\s*isActive\(\)\s*\)\s*return\s*null)",
+                                RegexOptions.Singleline),
+                            PatchFactory = BuildRemoteBridgeSyncSnapshotPatch
                         },
                         new PatchEntry
                         {
