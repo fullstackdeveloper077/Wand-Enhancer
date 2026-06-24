@@ -58,7 +58,7 @@ namespace WandEnhancer.Core
             var state = RequireGroup(match, "state", "setAccountReducer");
             var account = RequireGroup(match, "account", "setAccountReducer");
             return
-                $"const {decl}=\"ACTION_SET_ACCOUNT\";function {fn}({parameters}){{const a={account};return a&&\"object\"==typeof a&&(a={{...a,subscription:{{period:\"yearly\",state:\"active\"}}}}),{{...{state},account:a}}}}";
+                $"const {decl}=\"ACTION_SET_ACCOUNT\";function {fn}({parameters}){{const a={account}&&\"object\"==typeof {account}?{{...{account},subscription:{{period:\"yearly\",state:\"active\"}}}}:{account};return{{...{state},account:a}}}}";
         }
 
         private static string BuildRemoteBridgeResetPatch(Match match)
