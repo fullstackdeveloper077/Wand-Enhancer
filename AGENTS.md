@@ -52,6 +52,7 @@ This repository patches the Wand Electron app from a .NET Framework WPF desktop 
 - Shared web protocol version, port, and HTTP/WS paths live in `web-panel/protocol/web-contract.json`. Bridge-only IPC channels, WS opcodes, and renderer injection delays live in `web-panel/bridge/src/constants.ts`. Do not redeclare these values inline.
 - UI string-union types follow the `E*` enum convention from `.claude/rules/frontend-conventions.md` (currently `ECheatType` in `protocol/messages.ts`, `EConnectionStatus` in `remote-session/remote-session.reducer.ts`); wire string values must remain on the right-hand side of enum members. Reducer action tags stay as discriminated-union string literals.
 - Cheat input controls live one-per-file under `web-panel/src/trainer/controls/`; shared `SliderTrack` / `StepButton` / `ControlInternalProps` are in `controls/shared.tsx` and number formatting helpers in `controls/format-number.ts`. `controls/CheatControl.tsx` remains a thin dispatcher keyed by `ECheatType`.
+- Toggle, action and stepper buttons call `hapticTap` (`web-panel/src/shared/haptics.ts`) before dispatching the change. Keep it off sliders and other continuous inputs: it would vibrate on every drag tick. It only works where the Vibration API exists (Android browsers, not iOS Safari).
 - Mobile drawer performance is sensitive to `backdrop-filter`. Keep drawer panels and nested glass controls blur-free under coarse pointers, and do not add per-row `backdrop-blur-*` inside drawer lists.
 
 ## Auto-Apply After Update
